@@ -11,7 +11,7 @@ const gh = 'https://github.com/'
 fn get_page_links(flink string) ?map[string]string {
 	document := html.parse_file(flink)
 	anchor_tags := document.get_tag('a')
-	
+	//println(anchor_tags)
 	mut fileaddr := map[string]string{}
 	for tag in anchor_tags {
 		if 'class' in tag.attributes{ //&& tag.attributes['class'].contains('square')
@@ -95,17 +95,17 @@ fn main(){
 	mut df := map[string]string
 	if ret := get_page_links('./file.html'){
 		for k,v in ret{
-			if k.contains(keyword){
+			if os.file_ext(k) == keyword{
 				println('$k : $v')
 				if ispdf{
 					processedpath = urllib.parse(processing(v,ispdf,true))or{panic(err)}
 					println('prepare for download: $gh$processedpath/$k')
-					println('download start...')
+					//println('download start...')
 					df['$gh$processedpath/$k']='./$dir/$k'
 				}else{
 					processedpath = urllib.parse(processing(v,ispdf,true))or{panic(err)}
 					println('prepare for download: $ghr$processedpath/$k')
-					println('download count...')
+					//println('download count...')
 					df['$ghr$processedpath/$k']='./$dir/$k'
 				}
 			}
