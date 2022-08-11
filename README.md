@@ -1,5 +1,5 @@
-# vgitscraper
-a github scraper in vlang
+## vgitscraper
+##a github scraper in vlang
 
 ## sometime you don't want to clone the whole content of a repository on the github, you may only be interested in some parts such as certain source code and pdf books etc.
 ## why vlang: it only took me around one day to know the grammar and syntex of vlang. it's really simple and straighforward, and as a brand new language the documentation is quite good. so it's very easy to put hands on and write up your code.
