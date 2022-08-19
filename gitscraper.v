@@ -5,24 +5,8 @@ import os.cmdline
 import net.urllib
 import sync
 
-const ghr = 'https://raw.githubusercontent.com/'
-const gh = 'https://github.com/'
-
-fn get_page_links(flink string) ?map[string]string {
-	document := html.parse_file(flink)
-	anchor_tags := document.get_tag('a')
-	//println(anchor_tags)
-	mut fileaddr := map[string]string{}
-	for tag in anchor_tags {
-		if 'class' in tag.attributes{ //&& tag.attributes['class'].contains('square')
-			//println(tag)
-			fileaddr[tag.attributes['title']]=tag.attributes['href']
-		}else{
-			println('no file found')
-		}
-	}
-	return fileaddr
-}
+const ghr = 'https://raw.githubusercontent.com'
+const gh = 'https://github.com'
 
 fn processing(p string, pdf bool,isf bool) string {
 	mut plist := p.split('/')
@@ -37,10 +21,6 @@ fn processing(p string, pdf bool,isf bool) string {
 				newp << 'raw'
 			}
 			newp << plist[i..]
-			/*newp << e
-			for j:=i+1;j<plist.len;j++{
-				newp << plist[j]
-			}*/
 			break
 		}
 	}
@@ -53,71 +33,96 @@ fn processing(p string, pdf bool,isf bool) string {
 }
 
 fn godf (mut wg sync.WaitGroup, df string, fd string) ?string{
-	println('start donwload $df into $fd')
+	tid := sync.thread_id()
+	println('[tid:$tid.hex()]: start donwload $df into $fd')
 	http.download_file(df,fd)?
 	wg.done()
 	return 'done'
 }
 
+fn get_total_page_links(mut wg sync.WaitGroup, url string, keyword string, path string, dir string) ?{
+	tid := sync.thread_id()
+	mut content := http.get_text(url)
+	document := html.parse(content)
+	println('[tid:$tid.hex()]: start parse content...')
+	anchor_tags := document.get_tag('a')
+	println('[tid:$tid.hex()]: getting all hrefs...')
+	mut retf := map[string]string{}
+	mut retd := []string{}
+	for tag in anchor_tags{
+		if tag.attributes['href'].ends_with(keyword){
+			println('[tid:$tid.hex()]: summarizing keyword files...')
+			retf[tag.attributes['title']]=tag.attributes['href']
+		}else if tag.attributes['href'].starts_with(path) && tag.attributes['href'].contains('tree/master/'){
+			println('[tid:$tid.hex()]: related directory found: ${tag.attributes['href']}')
+			retd << tag.attributes['href']
+		}
+	}
+	aurl := urllib.parse(url)or{panic(err)}
+	if retf.len>0{
+		mut tempd := []string
+		mut tempdir := ''
+		for _,mut dv in retf{
+			dv = dv.replace('blob','raw')
+			if dv.contains('master'){
+				tempd = (dv.split('master')[1]).split('/')
+				tempdir = dir + tempd#[..-1].join('/')
+			}else if dv.contains('main'){
+				tempd = (dv.split('main')[1]).split('/')
+				tempdir = dir + tempd#[..-1].join('/')
+			}
+			if !os.exists('./$tempdir/'){
+				os.mkdir('./$tempdir/',os.MkdirParams{})?
+				println('[tid:$tid.hex()]: dir ./$tempdir/ created')
+			}
+		}
+	wg.add(retf.len)
+	println('[tid:$tid.hex()]: ${retf.keys().len} file download wg created')
+		for dk,mut dv in retf{
+			go godf(mut wg, 'https://$aurl.host$dv', './$tempdir/$dk')
+		}
+		println('[tid:$tid.hex()]: all download done')
+	}
+	if retd.len>0{
+	wg.add(retd.len)
+	println('[tid:$tid.hex()]: ${retd.len} directory explore wg created, they are:')
+		for link in retd{
+			println(link)
+			go get_total_page_links(mut wg,'https://$aurl.host$link',keyword,link.trim_right('/'),dir)
+		}
+		println('[tid:$tid.hex()]: all directory done')
+	}
+	wg.done()
+	println('[tid:$tid.hex()]: all done')
+	return
+}
+
 fn main(){
+	mtid := sync.thread_id()
 	if os.args.len <3{
-		println('usage: scrap -u [url] -k [keyword] -d [directory to save file]')
+		println('[mtid:$mtid.hex()]: usage: scrap -u [url] -k [keyword] -d [directory to save file]')
 		return
 	}
 	base_url := cmdline.option(os.args[1..],'-u','')
-	println('url to analyze is: $base_url')
+	println('[mtid:$mtid.hex()]: url to analyze is: $base_url')
 	url := urllib.parse(base_url)or{panic(err)}
-	println('host is: ${url.host}')
+	println('[mtid:$mtid.hex()]: host is: ${url.host}')
 	path := url.path
-	println('path is: $path')
+	println('[mtid:$mtid.hex()]: path is: $path')
 	keyword := cmdline.option(os.args[1..],'-k','')
-	println('keyword to search for file download is: $keyword')
-	mut ispdf := false
-	if keyword=='.pdf'{
-		ispdf = true
-	}
-	mut processedpath := urllib.parse(processing(path,ispdf,false))or{panic(err)}
-	println('after processing, path is: $processedpath')
-	dir := cmdline.option(os.args[1..],'-d','')
-	print('directory to save is: $dir, ')
+	println('[mtid:$mtid.hex()]: keyword to search for file download is: $keyword')
+	mut dir := cmdline.option(os.args[1..],'-d','')
+	print('[mtid:$mtid.hex()]: directory to save is: $dir, ')
 	if os.exists('./$dir'){
-		println('existed.')
+		println('[mtid:$mtid.hex()]: existed.')
 	}else{
-		if ret := os.mkdir('./$dir',os.MkdirParams{}){
-			println('not existed, just created.')
-		}else{
-			panic(err)
-		}
+		os.mkdir('./$dir',os.MkdirParams{}) or {panic(err)}
+		println('[mtid:$mtid.hex()]: not existed, just created.')
 	}
-	mut content := http.get_text(base_url)
-	os.write_file('./file.html',content)?
 	mut wg := sync.new_waitgroup()
-	mut df := map[string]string
-	if ret := get_page_links('./file.html'){
-		for k,v in ret{
-			if os.file_ext(k) == keyword{
-				println('$k : $v')
-				if ispdf{
-					processedpath = urllib.parse(processing(v,ispdf,true))or{panic(err)}
-					println('prepare for download: $gh$processedpath/$k')
-					//println('download start...')
-					df['$gh$processedpath/$k']='./$dir/$k'
-				}else{
-					processedpath = urllib.parse(processing(v,ispdf,true))or{panic(err)}
-					println('prepare for download: $ghr$processedpath/$k')
-					//println('download count...')
-					df['$ghr$processedpath/$k']='./$dir/$k'
-				}
-			}
-		}
-		wg.add(df.keys().len)
-		println('${df.keys().len} wg created')
-		for dk,dv in df{
-			go godf(mut wg, dk, dv)
-		}
-		wg.wait()
-		println('all done')
-	}else{
-		panic(err)
-	}
+	//mut i := 0
+	wg.add(1)
+	get_total_page_links(mut wg,base_url,keyword,path,dir)?
+	wg.wait()
+	println('[mtid:$mtid.hex()]: all done')
 }
